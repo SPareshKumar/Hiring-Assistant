@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 import re
+from sentiment_analyzer import SentimentAnalyzer
 
 class TechnicalInterviewChatbot:
     def __init__(self, api_key: str):
@@ -11,6 +12,10 @@ class TechnicalInterviewChatbot:
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-pro')
         
+        # Initialize sentiment analyzer
+        self.sentiment_analyzer = SentimentAnalyzer(self.model)
+        self.sentiment_analysis = None
+
         # Conversation states
         self.GREETING = "greeting"
         self.COLLECTING_INFO = "collecting_info"
@@ -436,12 +441,21 @@ Please provide your answer, or type 'skip' to move to the next question.
         """
     
     def get_completion_message(self) -> str:
-        """Get completion message with dynamic content."""
+        """Get completion message with dynamic content and sentiment analysis."""
         total_questions = len(self.responses)
         skipped_count = sum(1 for r in self.responses if r['answer'] == 'Skipped')
         answered_count = total_questions - skipped_count
+
+        # Perform sentiment analysis
+        self.sentiment_analysis = self.sentiment_analyzer.analyze_all_responses(self.responses)
         
-        return f"""
+        # Format sentiment report
+        sentiment_report = self.sentiment_analyzer.format_sentiment_report(
+            self.sentiment_analysis, 
+            self.candidate_info.get('full_name', '')
+        )
+        
+        base_message = f"""
 🎉 **Technical Interview Completed!**
 
 Thank you, {self.candidate_info.get('full_name', 'candidate')}, for completing the technical interview!
@@ -456,6 +470,8 @@ Thank you, {self.candidate_info.get('full_name', 'candidate')}, for completing t
 **Your Experience Level:** {self.get_experience_level(self.candidate_info.get('experience_years', '0')).title()}
 **Tech Stack Covered:** {self.candidate_info.get('tech_stack', 'N/A')}
 
+{sentiment_report}
+
 **Next Steps:**
 1. Our technical team will review your personalized responses
 2. We'll contact you at {self.candidate_info.get('email', 'your email')} within 2-3 business days
@@ -466,9 +482,11 @@ Thank you for your time and interest in our company! 🚀
 
 *The interview has been customized based on your responses and technical background.*
         """
+        
+        return base_message
     
     def save_candidate_data(self) -> None:
-        """Save candidate data to JSON file."""
+        """Save candidate data to JSON file including sentiment analysis."""
         try:
             # Create directory if it doesn't exist
             os.makedirs("candidate_responses", exist_ok=True)
@@ -478,6 +496,7 @@ Thank you for your time and interest in our company! 🚀
                 "timestamp": datetime.now().isoformat(),
                 "candidate_info": self.candidate_info,
                 "technical_responses": self.responses,
+                "sentiment_analysis": self.sentiment_analysis,
                 "interview_status": "completed" if self.current_state == self.COMPLETED else "incomplete"
             }
             

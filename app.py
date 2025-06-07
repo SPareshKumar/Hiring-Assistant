@@ -254,6 +254,80 @@ def handle_user_input():
         
         st.rerun()
 
+def display_sentiment_analysis():
+    """Display real-time sentiment analysis in sidebar."""
+    chatbot = st.session_state.chatbot
+    
+    if hasattr(chatbot, 'responses') and len(chatbot.responses) > 0:
+        st.sidebar.markdown("### 🎭 Sentiment Analysis")
+        
+        # Get recent responses for analysis
+        recent_responses = chatbot.responses[-3:] if len(chatbot.responses) >= 3 else chatbot.responses
+        
+        if recent_responses:
+            # Perform quick sentiment analysis on recent responses
+            try:
+                recent_analysis = chatbot.sentiment_analyzer.analyze_all_responses(recent_responses)
+                
+                # Display key metrics
+                col1, col2 = st.sidebar.columns(2)
+                
+                with col1:
+                    sentiment_emoji = {
+                        "positive": "😊",
+                        "negative": "😟", 
+                        "neutral": "😐"
+                    }
+                    current_sentiment = recent_analysis.get('overall_sentiment', 'neutral')
+                    st.metric(
+                        "Mood", 
+                        f"{sentiment_emoji.get(current_sentiment, '😐')} {current_sentiment.title()}"
+                    )
+                
+                with col2:
+                    confidence = recent_analysis.get('average_confidence', 0) * 100
+                    st.metric("Confidence", f"{confidence:.0f}%")
+                
+                # Engagement level
+                engagement = recent_analysis.get('dominant_engagement_level', 'medium')
+                engagement_emoji = {"high": "🚀", "medium": "👍", "low": "📉"}
+                st.sidebar.markdown(f"**Engagement:** {engagement_emoji.get(engagement, '👍')} {engagement.title()}")
+                
+                # Emotional tone
+                tone = recent_analysis.get('dominant_emotional_tone', 'calm')
+                tone_emoji = {
+                    "confident": "💪", "enthusiastic": "⭐", "nervous": "😰",
+                    "frustrated": "😤", "uncertain": "❓", "calm": "😌"
+                }
+                st.sidebar.markdown(f"**Tone:** {tone_emoji.get(tone, '😌')} {tone.title()}")
+                
+                # Quick insights
+                insights = recent_analysis.get('insights', [])
+                if insights:
+                    st.sidebar.markdown("**Recent Insights:**")
+                    for insight in insights[:2]:  # Show top 2 insights
+                        st.sidebar.markdown(f"• {insight}")
+                        
+            except Exception as e:
+                st.sidebar.markdown("*Analyzing responses...*")
+    
+    # Show final sentiment analysis if interview is completed
+    if hasattr(chatbot, 'sentiment_analysis') and chatbot.sentiment_analysis:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### 📊 Final Analysis")
+        
+        analysis = chatbot.sentiment_analysis
+        
+        # Sentiment distribution chart
+        if st.sidebar.checkbox("Show Sentiment Breakdown"):
+            sentiment_data = analysis.get('sentiment_distribution', {})
+            if sentiment_data:
+                st.sidebar.markdown("**Sentiment Distribution:**")
+                for sentiment, percentage in sentiment_data.items():
+                    if percentage > 0:
+                        st.sidebar.progress(percentage/100)
+                        st.sidebar.markdown(f"{sentiment.title()}: {percentage:.1f}%")
+
 def display_candidate_info():
     """Display collected candidate information in sidebar."""
     chatbot = st.session_state.chatbot
@@ -311,8 +385,12 @@ def display_candidate_info():
                 status = "✅" if response['answer'] != 'Skipped' else "⏭️"
                 st.sidebar.markdown(f"{status} **Q{len(chatbot.responses)-3+i}:** {question_preview}")
     
+    # Display sentiment analysis
+    display_sentiment_analysis()
+    
     # Display interview insights
     if hasattr(chatbot, 'candidate_info') and 'tech_stack' in chatbot.candidate_info:
+        st.sidebar.markdown("---")
         st.sidebar.markdown("### 🎯 Interview Insights")
         
         tech_stack = chatbot.candidate_info.get('tech_stack', '')
