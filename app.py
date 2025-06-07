@@ -12,65 +12,253 @@ st.set_page_config(
     page_title="TechHire AI Interview Assistant",
     page_icon="🤖",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better UI
+# Simplified and working CSS
 st.markdown("""
 <style>
+    /* Hide Streamlit elements */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {display: none;}
+    
+    /* Main styling */
     .main > div {
-        padding-top: 2rem;
+        padding-top: 1rem;
     }
     
-    .stChatMessage {
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 1rem;
-    }
-    
-    .user-message {
-        background-color: #e8f4f8;
-        border-left: 4px solid #1f77b4;
-        color: #000 !important;
-    }
-    
-    .bot-message {
-        background-color: #f0f8e8;
-        border-left: 4px solid #2ca02c;
-        color: #000 !important;
-    }
-    
-    .title {
+    /* Header */
+    .app-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 2rem;
+        border-radius: 15px;
+        margin-bottom: 2rem;
         text-align: center;
-        color: #1f77b4;
-        margin-bottom: 2rem;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
     }
     
-    .header-info {
-        background-color: #f8f9fa;
+    .app-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin: 0;
+        color: white !important;
+    }
+    
+    .app-subtitle {
+        font-size: 1.2rem;
+        margin-top: 0.5rem;
+        color: white !important;
+    }
+    
+    /* Status bar */
+    .status-bar {
+        background: white;
+        border: 2px solid #e1e8ed;
+        border-radius: 12px;
         padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
-        border-left: 4px solid #17a2b8;
-        color: #000 !important;
-    }
-    
-    .chat-container {
-        max-height: 500px;
-        overflow-y: auto;
-        padding: 1rem;
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        background-color: #fafafa;
-    }
-    
-    .status-info {
-        background-color: #fff3cd;
-        padding: 0.75rem;
-        border-radius: 5px;
-        border-left: 4px solid #ffc107;
         margin-bottom: 1rem;
-        color: #000 !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .status-badge {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+    
+    .progress-container {
+        background: #f0f0f0;
+        border-radius: 10px;
+        height: 8px;
+        width: 200px;
+        margin: 0 1rem;
+    }
+    
+    .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+        border-radius: 10px;
+        transition: width 0.3s ease;
+    }
+    
+    /* Chat messages */
+    .chat-message {
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+    
+    .chat-message.user {
+        flex-direction: row-reverse;
+        justify-content: flex-start;
+    }
+    
+    .message-content {
+        max-width: 70%;
+        padding: 1rem 1.2rem;
+        border-radius: 18px;
+        word-wrap: break-word;
+        line-height: 1.5;
+    }
+    
+    .message-content.user {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-bottom-right-radius: 8px;
+    }
+    
+    .message-content.bot {
+        background: white;
+        color: #333;
+        border: 1px solid #e1e8ed;
+        border-bottom-left-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    
+    .message-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+        flex-shrink: 0;
+    }
+    
+    .avatar-user {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    .avatar-bot {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        color: white;
+    }
+    
+    /* Welcome message */
+    .welcome-message {
+        text-align: center;
+        padding: 3rem 2rem;
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        border-radius: 15px;
+        color: white;
+        margin: 2rem 0;
+    }
+    
+    /* Completion card */
+    .completion-card {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        text-align: center;
+        margin: 2rem 0;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+    }
+    
+    /* Sidebar styling */
+    .css-1d391kg {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    }
+    
+    /* Hide empty sidebar containers */
+    .css-1d391kg .element-container:empty {
+        display: none !important;
+    }
+    
+    .css-1d391kg .stMarkdown:empty {
+        display: none !important;
+    }
+    
+    /* Sidebar sections */
+    .sidebar-section {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        backdrop-filter: blur(10px);
+    }
+    
+    .sidebar-title {
+        color: white !important;
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+    }
+    
+    .info-item {
+        display: flex;
+        align-items: flex-start;
+        margin-bottom: 0.8rem;
+        color: white;
+    }
+    
+    .info-icon {
+        margin-right: 0.8rem;
+        font-size: 1rem;
+        flex-shrink: 0;
+        margin-top: 0.2rem;
+    }
+    
+    .info-value {
+        font-weight: 500;
+        color: white !important;
+        word-wrap: break-word;
+        flex: 1;
+    }
+    
+    .info-label {
+        font-size: 0.8rem;
+        color: rgba(255, 255, 255, 0.8) !important;
+        margin-bottom: 0.2rem;
+    }
+    
+    /* Force sidebar text to be white */
+    .css-1d391kg, .css-1rs6os, .element-container, .stMarkdown {
+        color: white !important;
+    }
+    
+    /* Typing indicator */
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 1rem;
+        background: white;
+        border-radius: 18px;
+        border: 1px solid #e1e8ed;
+        margin-bottom: 1rem;
+        max-width: 200px;
+        border-bottom-left-radius: 8px;
+    }
+    
+    .typing-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #999;
+        animation: bounce 1.4s infinite ease-in-out;
+    }
+    
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    
+    @keyframes bounce {
+        0%, 80%, 100% { transform: scale(0); }
+        40% { transform: scale(1); }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -92,110 +280,100 @@ def initialize_session_state():
     
     if 'interview_completed' not in st.session_state:
         st.session_state.interview_completed = False
+    
+    if 'show_typing' not in st.session_state:
+        st.session_state.show_typing = False
 
 def display_header():
     """Display the application header."""
-    st.markdown("<h1 class='title'>🤖 TechHire AI Interview Assistant</h1>", unsafe_allow_html=True)
-    
     st.markdown("""
-    <div class='header-info'>
-        <h3>📋 Interview Process Overview</h3>
-        <ul>
-            <li><strong>Step 1:</strong> Personal Information Collection</li>
-            <li><strong>Step 2:</strong> Technical Skills Assessment</li>
-            <li><strong>Step 3:</strong> Tailored Technical Questions</li>
-            <li><strong>Step 4:</strong> Interview Completion & Next Steps</li>
-        </ul>
-        <p><em>💡 Tip: You can type 'exit', 'quit', or 'bye' at any time to end the interview.</em></p>
+    <div class="app-header">
+        <h1 class="app-title">🤖 TechHire AI Interview Assistant</h1>
+        <p class="app-subtitle">Streamlined Technical Interviews with AI-Powered Assessment</p>
     </div>
     """, unsafe_allow_html=True)
 
 def display_status():
-    """Display current interview status."""
+    """Display the current interview status."""
+    # Fix: Access chatbot from session state
     chatbot = st.session_state.chatbot
     state = chatbot.get_conversation_state()
+    current_state = state['current_state']  # Extract the string value
     
     status_map = {
-        "greeting": "🚀 Ready to Start",
-        "collecting_info": "📝 Collecting Information",
-        "tech_stack": "💻 Tech Stack Assessment",
-        "technical_questions": "❓ Technical Interview",
-        "completed": "✅ Interview Completed"
+        'greeting': ("👋 Welcome", 5),
+        'collecting_info': ("📝 Collecting Information", 25),
+        'tech_stack': ("🔍 Analyzing Profile", 35), 
+        'technical_questions': ("💻 Technical Interview", 70),
+        'completed': ("✅ Completed", 100)
     }
     
-    current_status = status_map.get(state, "🔄 In Progress")
+    # Use current_state (the string), NOT state (the dict)
+    current_status, progress = status_map.get(current_state, ("🔄 In Progress", 0))
     
-    # Progress calculation
-    progress = 0
-    if state == "greeting":
-        progress = 0
-    elif state == "collecting_info":
-        progress = 25
-    elif state == "tech_stack":
-        progress = 50
-    elif state == "technical_questions":
-        progress = 75
-    elif state == "completed":
-        progress = 100
-
-    # Make "Current Status" text always black
     st.markdown(f"""
-    <div class='status-info'>
-        <strong style="color: #000 !important;">Current Status:</strong> <span style="color: #000 !important;">{current_status}</span>
+    <div class="status-bar">
+        <div class="status-badge">{current_status}</div>
+        <div class="progress-container">
+            <div class="progress-bar" style="width: {progress}%"></div>
+        </div>
+        <div style="font-weight: 600; color: #666; font-size: 0.9rem;">{progress}%</div>
     </div>
     """, unsafe_allow_html=True)
-    
-    st.progress(progress / 100)
 
-def display_chat_history():
-    """Display chat message history."""
-    st.markdown("<h3>💬 Conversation</h3>", unsafe_allow_html=True)
+def display_message(role, content):
+    """Display a single message in the chat."""
+    # Clean content
+    content = content.strip().replace('\n', '<br>')
     
-    chat_container = st.container()
-    with chat_container:
-        interview_completed = st.session_state.get("interview_completed", False)
-        
+    # Basic markdown formatting
+    import re
+    content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', content)
+    content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', content)
+    content = re.sub(r'`(.*?)`', r'<code>\1</code>', content)
+    
+    if role == "user":
+        st.markdown(f"""
+        <div class="chat-message user">
+            <div class="message-content user">{content}</div>
+            <div class="message-avatar avatar-user">👤</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="chat-message bot">
+            <div class="message-avatar avatar-bot">🤖</div>
+            <div class="message-content bot">{content}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+def display_chat_interface():
+    """Display the main chat interface."""
+    # Display messages
+    if len(st.session_state.messages) == 0:
+        st.markdown("""
+        <div class="welcome-message">
+            <h3>Welcome to TechHire AI Interview</h3>
+            <p>Click the button below to start your personalized technical interview session.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
         for message in st.session_state.messages:
-            # Remove the "customized" message if interview is completed
-            if (
-                interview_completed
-                and message["role"] == "assistant"
-                and "The interview has been customized based on your responses and technical background." in message["content"]
-            ):
-                # Remove the line from the message content
-                content = message["content"].replace(
-                    "*The interview has been customized based on your responses and technical background.*", ""
-                ).replace(
-                    "The interview has been customized based on your responses and technical background.", ""
-                ).strip()
-                # Remove any trailing/leading newlines
-                content = content.strip("\n")
-            else:
-                content = message["content"]
-            
-            # Clean and normalize content
-            content = content.strip()
-            
-            # Remove any HTML tags that might have been accidentally added
-            import re
-            content = re.sub(r'<[^>]*>', '', content)
-            
-            # Convert markdown-style formatting to HTML for display
-            content = content.replace('**', '<strong>').replace('**', '</strong>')
-            content = content.replace('\n', '<br>')
-            
-            if message["role"] == "user":
-                st.markdown(f"""
-                <div class='stChatMessage user-message' style='color: #000 !important;'>
-                    <strong>You:</strong> {content}
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div class='stChatMessage bot-message' style='color: #000 !important;'>
-                    <strong>🤖 Assistant:</strong> {content}
-                </div>
-                """, unsafe_allow_html=True)
+            display_message(message["role"], message["content"])
+    
+    # Show typing indicator
+    if st.session_state.show_typing:
+        st.markdown("""
+        <div class="chat-message bot">
+            <div class="message-avatar avatar-bot">🤖</div>
+            <div class="typing-indicator">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <span style="margin-left: 0.5rem; color: #999; font-size: 0.9rem;">AI is thinking...</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 def handle_user_input():
     """Handle user input and chatbot response."""
@@ -213,264 +391,156 @@ def handle_user_input():
         return
     
     # Check if interview is completed
-    if chatbot.get_conversation_state() == "completed":
+    if chatbot.get_conversation_state()['current_state'] == "completed":
         st.session_state.interview_completed = True
-        st.markdown("""
-        <div style='text-align: center; padding: 2rem; background-color: #d4edda; 
-                    border-radius: 10px; border: 1px solid #c3e6cb; margin: 2rem 0; color: #000 !important;'>
-            <h3 style='color: #155724; margin-bottom: 1rem;'>🎉 Interview Completed Successfully!</h3>
-            <p style='color: #155724; margin-bottom: 1rem;'>Thank you for completing the technical interview.</p>
-            <p style='color: #155724; font-size: 0.9rem;'>Your responses have been saved and our team will review them shortly.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Option to start a new interview
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🔄 Start New Interview", type="secondary", use_container_width=True):
-                # Reset session state
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
+        display_completion_card()
         return
     
     # Chat input
-    if user_input := st.chat_input("Type your message here...", disabled=st.session_state.interview_completed):
-        # Add user message to history
+    user_input = st.chat_input(
+        "Type your message here...", 
+        disabled=st.session_state.interview_completed
+    )
+    
+    if user_input and user_input.strip():
+        # Add user message
         st.session_state.messages.append({"role": "user", "content": user_input})
         
-        # Get bot response
-        with st.spinner("🤖 Thinking..."):
+        # Show typing and process response
+        st.session_state.show_typing = True
+        st.rerun()
+
+def process_bot_response():
+    """Process bot response after user input."""
+    if st.session_state.show_typing and len(st.session_state.messages) > 0:
+        chatbot = st.session_state.chatbot
+        last_message = st.session_state.messages[-1]
+        
+        if last_message["role"] == "user":
             try:
-                bot_response = chatbot.process_message(user_input)
+                bot_response = chatbot.process_message(last_message["content"])
                 st.session_state.messages.append({"role": "assistant", "content": bot_response})
-                
-                # Small delay for better UX
-                time.sleep(0.5)
-                
+                st.session_state.show_typing = False
+                st.rerun()
             except Exception as e:
                 error_message = f"Sorry, I encountered an error: {str(e)}. Please try again."
                 st.session_state.messages.append({"role": "assistant", "content": error_message})
-        
-        st.rerun()
+                st.session_state.show_typing = False
+                st.rerun()
 
-def display_sentiment_analysis():
-    """Display real-time sentiment analysis in sidebar."""
+def display_completion_card():
+    """Display interview completion message."""
+    st.markdown("""
+    <div class="completion-card">
+        <h2>🎉 Interview Completed Successfully!</h2>
+        <p>Thank you for completing the technical interview. Your responses have been saved and our team will review them shortly.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🔄 Start New Interview", type="secondary", use_container_width=True):
+            # Reset session state
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+def display_sidebar_content():
+    """Display sidebar content without empty containers."""
     chatbot = st.session_state.chatbot
     
-    if hasattr(chatbot, 'responses') and len(chatbot.responses) > 0:
-        st.sidebar.markdown("### 🎭 Sentiment Analysis")
-        
-        # Get recent responses for analysis
-        recent_responses = chatbot.responses[-3:] if len(chatbot.responses) >= 3 else chatbot.responses
-        
-        if recent_responses:
-            # Perform quick sentiment analysis on recent responses
-            try:
-                recent_analysis = chatbot.sentiment_analyzer.analyze_all_responses(recent_responses)
-                
-                # Display key metrics
-                col1, col2 = st.sidebar.columns(2)
-                
-                with col1:
-                    sentiment_emoji = {
-                        "positive": "😊",
-                        "negative": "😟", 
-                        "neutral": "😐"
-                    }
-                    current_sentiment = recent_analysis.get('overall_sentiment', 'neutral')
-                    st.metric(
-                        "Mood", 
-                        f"{sentiment_emoji.get(current_sentiment, '😐')} {current_sentiment.title()}"
-                    )
-                
-                with col2:
-                    confidence = recent_analysis.get('average_confidence', 0) * 100
-                    st.metric("Confidence", f"{confidence:.0f}%")
-                
-                # Engagement level
-                engagement = recent_analysis.get('dominant_engagement_level', 'medium')
-                engagement_emoji = {"high": "🚀", "medium": "👍", "low": "📉"}
-                st.sidebar.markdown(f"**Engagement:** {engagement_emoji.get(engagement, '👍')} {engagement.title()}")
-                
-                # Emotional tone
-                tone = recent_analysis.get('dominant_emotional_tone', 'calm')
-                tone_emoji = {
-                    "confident": "💪", "enthusiastic": "⭐", "nervous": "😰",
-                    "frustrated": "😤", "uncertain": "❓", "calm": "😌"
-                }
-                st.sidebar.markdown(f"**Tone:** {tone_emoji.get(tone, '😌')} {tone.title()}")
-                
-                # Quick insights
-                insights = recent_analysis.get('insights', [])
-                if insights:
-                    st.sidebar.markdown("**Recent Insights:**")
-                    for insight in insights[:2]:  # Show top 2 insights
-                        st.sidebar.markdown(f"• {insight}")
-                        
-            except Exception as e:
-                st.sidebar.markdown("*Analyzing responses...*")
-    
-    # Show final sentiment analysis if interview is completed
-    if hasattr(chatbot, 'sentiment_analysis') and chatbot.sentiment_analysis:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 📊 Final Analysis")
-        
-        analysis = chatbot.sentiment_analysis
-        
-        # Sentiment distribution chart
-        if st.sidebar.checkbox("Show Sentiment Breakdown"):
-            sentiment_data = analysis.get('sentiment_distribution', {})
-            if sentiment_data:
-                st.sidebar.markdown("**Sentiment Distribution:**")
-                for sentiment, percentage in sentiment_data.items():
-                    if percentage > 0:
-                        st.sidebar.progress(percentage/100)
-                        st.sidebar.markdown(f"{sentiment.title()}: {percentage:.1f}%")
-
-def display_candidate_info():
-    """Display collected candidate information in sidebar."""
-    chatbot = st.session_state.chatbot
-    
+    # Candidate Info Section
     if hasattr(chatbot, 'candidate_info') and chatbot.candidate_info:
-        st.sidebar.markdown("### 📋 Candidate Information")
+        st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+        st.markdown('<h4 class="sidebar-title">👤 Candidate Profile</h4>', unsafe_allow_html=True)
         
-        info_display = {
-            'full_name': '👤 Name',
-            'email': '📧 Email',
-            'phone': '📱 Phone',
-            'experience_years': '💼 Experience',
-            'desired_positions': '🎯 Position',
-            'location': '📍 Location',
-            'tech_stack': '💻 Tech Stack'
-        }
+        info_items = [
+            ('full_name', '👤', 'Name'),
+            ('email', '📧', 'Email'),
+            ('phone', '📱', 'Phone'),
+            ('experience_years', '💼', 'Experience'),
+            ('desired_positions', '🎯', 'Position'),
+            ('location', '📍', 'Location'),
+            ('tech_stack', '💻', 'Tech Stack')
+        ]
         
-        for key, label in info_display.items():
-            if key in chatbot.candidate_info:
+        for key, icon, label in info_items:
+            if key in chatbot.candidate_info and chatbot.candidate_info[key]:
                 value = chatbot.candidate_info[key]
-                if key == 'experience_years':
-                    experience_level = chatbot.get_experience_level(value)
-                    value = f"{value} years ({experience_level.title()})"
-                st.sidebar.markdown(f"**{label}:** {value}")
+                if key == 'experience_years' and value:
+                    try:
+                        experience_level = chatbot.get_experience_level(value)
+                        value = f"{value} years ({experience_level.title()})"
+                    except:
+                        value = f"{value} years"
+                
+                st.markdown(f"""
+                <div class="info-item">
+                    <span class="info-icon">{icon}</span>
+                    <div>
+                        <div class="info-label">{label}</div>
+                        <div class="info-value">{value}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    # Display technical questions progress with dynamic info
-    if hasattr(chatbot, 'responses') and chatbot.responses:
-        st.sidebar.markdown("### ❓ Interview Progress")
-        total_questions = len(chatbot.responses)
-        
-        # Show question types
-        main_questions = sum(1 for r in chatbot.responses if not r.get('is_followup', False))
-        followup_questions = total_questions - main_questions
-        
-        st.sidebar.markdown(f"**Questions Asked:** {total_questions}")
-        st.sidebar.markdown(f"• Main Questions: {main_questions}")
-        if followup_questions > 0:
-            st.sidebar.markdown(f"• Follow-up Questions: {followup_questions}")
-        
-        # Show answered vs skipped
-        answered = sum(1 for r in chatbot.responses if r['answer'] != 'Skipped')
-        skipped = total_questions - answered
-        
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            st.metric("Answered", answered)
-        with col2:
-            st.metric("Skipped", skipped)
-        
-        # Show recent questions
-        if len(chatbot.responses) > 0:
-            st.sidebar.markdown("### 📝 Recent Questions")
-            for i, response in enumerate(chatbot.responses[-3:], 1):  # Last 3 questions
-                question_preview = response['question'][:50] + "..." if len(response['question']) > 50 else response['question']
-                status = "✅" if response['answer'] != 'Skipped' else "⏭️"
-                st.sidebar.markdown(f"{status} **Q{len(chatbot.responses)-3+i}:** {question_preview}")
+    # Help Section
+    st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+    st.markdown('<h4 class="sidebar-title">💡 Help & Tips</h4>', unsafe_allow_html=True)
     
-    # Display sentiment analysis
-    display_sentiment_analysis()
+    st.markdown("""
+    **Commands:**
+    - Type "exit", "quit", or "bye" to end
+    - Type "skip" to skip a question
     
-    # Display interview insights
-    if hasattr(chatbot, 'candidate_info') and 'tech_stack' in chatbot.candidate_info:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 🎯 Interview Insights")
-        
-        tech_stack = chatbot.candidate_info.get('tech_stack', '')
-        experience_years = chatbot.candidate_info.get('experience_years', '0')
-        experience_level = chatbot.get_experience_level(experience_years)
-        
-        st.sidebar.markdown(f"**Difficulty Level:** {experience_level.title()}")
-        
-        # Show covered technologies
-        if hasattr(chatbot, 'responses') and chatbot.responses:
-            covered_techs = set()
-            for response in chatbot.responses:
-                question_lower = response['question'].lower()
-                for tech in tech_stack.split(','):
-                    tech = tech.strip().lower()
-                    if tech in question_lower:
-                        covered_techs.add(tech.title())
-            
-            if covered_techs:
-                st.sidebar.markdown(f"**Technologies Covered:** {', '.join(list(covered_techs)[:3])}")
+    **Tips:**
+    - Be specific about your tech stack
+    - Provide detailed answers
+    - Mention specific projects/examples
+    - Maximum 6 questions per interview
+    
+    **Features:**
+    - Adaptive questions based on experience
+    - Dynamic follow-up questions
+    - Real-time assessment
+    - Personalized interview flow
+    """)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # About Section
+    st.markdown('<div class="sidebar-section">', unsafe_allow_html=True)
+    st.markdown('<h4 class="sidebar-title">ℹ️ About</h4>', unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="text-align: center;">
+        <strong>TechHire AI Assistant</strong><br>
+        <em>Version 2.0</em><br><br>
+        Powered by Google Gemini AI<br>
+        Built with Streamlit<br><br>
+        🔒 Secure • 🚀 Fast • 🎯 Accurate
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def main():
     """Main application function."""
     # Initialize session state
     initialize_session_state()
-    
-    # Create layout
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        # Display header
-        display_header()
-        
-        # Display status
-        display_status()
-        
-        # Display chat history
-        if st.session_state.messages:
-            display_chat_history()
-        
-        # Handle user input
-        handle_user_input()
-    
-    with col2:
-        # Display candidate information
-        display_candidate_info()
-        
-        # Help section
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 💡 Help & Tips")
-        st.sidebar.markdown("""
-        **Commands:**
-        - `exit`, `quit`, `bye` - End interview
-        - `skip` - Skip current question
-        
-        **Dynamic Features:**
-        - Questions adapt to your experience level
-        - Follow-up questions based on your answers
-        - Tech stack specific questions
-        - Maximum 6 questions per interview
-        
-        **Tips:**
-        - Be specific about your tech stack
-        - Provide detailed answers for better follow-ups
-        - Mention specific projects/examples
-        
-        **Support:**
-        If you encounter issues, please refresh the page and try again.
-        """)
-        
-        # Footer
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 📊 About")
-        st.sidebar.markdown("""
-        **TechHire AI Assistant v1.0**
-        
-        Powered by Google Gemini AI
-        
-        Built with Streamlit
-        """)
+
+    # Sidebar - use single container to avoid empty boxes
+    with st.sidebar:
+        display_sidebar_content()
+
+    # Main content
+    display_header()
+    display_status()
+    display_chat_interface()
+    handle_user_input()
+    process_bot_response()
 
 if __name__ == "__main__":
     main()

@@ -2,7 +2,7 @@ import google.generativeai as genai
 import json
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import re
 from sentiment_analyzer import SentimentAnalyzer
 
@@ -15,6 +15,7 @@ class TechnicalInterviewChatbot:
         # Initialize sentiment analyzer
         self.sentiment_analyzer = SentimentAnalyzer(self.model)
         self.sentiment_analysis = None
+        self.individual_sentiments = []  # Store individual response sentiments
 
         # Conversation states
         self.GREETING = "greeting"
@@ -29,10 +30,20 @@ class TechnicalInterviewChatbot:
         self.current_question_index = 0
         self.responses = []
         
+        # Enhanced candidate profile analysis
+        self.candidate_profile = {}
+        self.question_strategy = {}
+        self.technical_areas_covered = set()
+        self.skill_depth_assessment = {}
+        
+        # Question tracking to prevent duplicates
+        self.asked_questions = set()
+        self.asked_questions_raw = []
+        
         # Information fields to collect
         self.info_fields = [
             "full_name",
-            "email",
+            "email", 
             "phone",
             "experience_years",
             "desired_positions",
@@ -44,15 +55,598 @@ class TechnicalInterviewChatbot:
         # Exit keywords
         self.exit_keywords = ["exit", "quit", "bye", "goodbye", "end", "stop"]
         
+        # Enhanced position-specific question templates
+        self.position_question_templates = {
+            "frontend": ["ui/ux implementation", "responsive design", "state management", "performance optimization", "accessibility"],
+            "backend": ["api design", "database optimization", "scalability", "security", "microservices"],
+            "fullstack": ["system architecture", "api integration", "database design", "deployment", "testing"],
+            "devops": ["ci/cd", "containerization", "monitoring", "infrastructure", "automation"],
+            "mobile": ["platform specifics", "performance", "offline handling", "native features", "app store"],
+            "data": ["data pipeline", "analytics", "ml models", "data visualization", "etl processes"],
+            "qa": ["test automation", "test strategies", "bug tracking", "performance testing", "security testing"]
+        }
+    
+    def analyze_candidate_profile(self) -> Dict:
+        """Deeply analyze candidate profile to create personalized question strategy."""
+        tech_stack = self.candidate_info.get("tech_stack", "")
+        experience_years = self.candidate_info.get("experience_years", "0")
+        desired_positions = self.candidate_info.get("desired_positions", "").lower()
+        
+        try:
+            profile_analysis_prompt = f"""
+            Analyze this candidate's profile in detail:
+            
+            Tech Stack: {tech_stack}
+            Experience: {experience_years} years
+            Desired Positions: {desired_positions}
+            
+            Provide a comprehensive analysis in JSON format:
+            {{
+                "primary_technologies": ["list of 3-4 main technologies"],
+                "secondary_technologies": ["list of supporting technologies"],
+                "experience_level_per_tech": {{"tech": "beginner/intermediate/advanced/expert"}},
+                "position_category": "frontend/backend/fullstack/devops/mobile/data/qa/other",
+                "specialization_areas": ["list of specialized areas based on tech stack"],
+                "likely_project_types": ["types of projects they likely worked on"],
+                "knowledge_gaps": ["potential areas to probe deeper"],
+                "question_focus_areas": ["specific technical areas to focus questions on"],
+                "complexity_level": "junior/mid/senior/expert",
+                "interview_approach": "hands-on/theoretical/scenario-based/architecture-focused"
+            }}
+            """
+            
+            response = self.model.generate_content(profile_analysis_prompt)
+            analysis = json.loads(response.text.strip())
+            
+            # Store the analysis
+            self.candidate_profile = analysis
+            return analysis
+            
+        except Exception as e:
+            print(f"Error analyzing candidate profile: {e}")
+            # Fallback analysis
+            return {
+                "primary_technologies": tech_stack.split(',')[:3],
+                "experience_level_per_tech": {},
+                "position_category": "fullstack",
+                "complexity_level": self.get_experience_level(experience_years),
+                "interview_approach": "scenario-based"
+            }
+    
+    def analyze_response_sentiment(self, response_text: str) -> Dict:
+        """Analyze sentiment of individual response with better error handling."""
+        if not response_text or response_text.lower() in ["skipped", "skip"]:
+            return {
+                "overall_sentiment": "Neutral",
+                "confidence_indicators": "Not Available",
+                "technical_depth": "Not Assessed",
+                "communication_style": "Not Available",
+                "engagement_level": "Not Available"
+            }
+        
+        try:
+            # Use the sentiment analyzer
+            sentiment_result = self.sentiment_analyzer.analyze_sentiment(response_text)
+            
+            if sentiment_result and isinstance(sentiment_result, dict):
+                return sentiment_result
+            else:
+                # Fallback analysis using simple keyword detection
+                return self.fallback_sentiment_analysis(response_text)
+                
+        except Exception as e:
+            print(f"Error in sentiment analysis: {e}")
+            return self.fallback_sentiment_analysis(response_text)
+    
+    def fallback_sentiment_analysis(self, text: str) -> Dict:
+        """Fallback sentiment analysis using keyword detection."""
+        text_lower = text.lower()
+        
+        # Confidence indicators
+        confident_words = ["definitely", "certainly", "absolutely", "sure", "confident", "know", "experienced"]
+        uncertain_words = ["maybe", "perhaps", "think", "believe", "probably", "not sure", "guess"]
+        
+        confident_count = sum(1 for word in confident_words if word in text_lower)
+        uncertain_count = sum(1 for word in uncertain_words if word in text_lower)
+        
+        # Technical depth indicators
+        technical_words = ["implement", "architecture", "database", "algorithm", "optimization", "framework", "api"]
+        technical_count = sum(1 for word in technical_words if word in text_lower)
+        
+        # Determine overall sentiment
+        if confident_count > uncertain_count:
+            overall_sentiment = "Confident"
+        elif uncertain_count > confident_count:
+            overall_sentiment = "Cautious"
+        else:
+            overall_sentiment = "Balanced"
+        
+        # Determine confidence level
+        if confident_count >= 2:
+            confidence_level = "High"
+        elif uncertain_count >= 2:
+            confidence_level = "Low"
+        else:
+            confidence_level = "Moderate"
+        
+        # Technical depth
+        if technical_count >= 3:
+            technical_depth = "Deep"
+        elif technical_count >= 1:
+            technical_depth = "Moderate"
+        else:
+            technical_depth = "Surface"
+        
+        return {
+            "overall_sentiment": overall_sentiment,
+            "confidence_indicators": confidence_level,
+            "technical_depth": technical_depth,
+            "communication_style": "Professional",
+            "engagement_level": "Good" if len(text) > 100 else "Brief"
+        }
+
+    def generate_personalized_first_question(self) -> str:
+        """Generate highly personalized first question based on detailed profile analysis."""
+        profile = self.candidate_profile
+        tech_stack = self.candidate_info.get("tech_stack", "")
+        experience_years = self.candidate_info.get("experience_years", "0")
+        desired_positions = self.candidate_info.get("desired_positions", "")
+        
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                first_question_prompt = f"""
+                Generate a highly specific first technical question for this candidate:
+                
+                CANDIDATE PROFILE:
+                - Tech Stack: {tech_stack}
+                - Experience: {experience_years} years
+                - Target Role: {desired_positions}
+                - Primary Technologies: {profile.get('primary_technologies', [])}
+                - Position Category: {profile.get('position_category', 'fullstack')}
+                - Specialization Areas: {profile.get('specialization_areas', [])}
+                - Complexity Level: {profile.get('complexity_level', 'mid')}
+                - Interview Approach: {profile.get('interview_approach', 'scenario-based')}
+                
+                REQUIREMENTS:
+                1. Question must be SPECIFIC to their PRIMARY technology and target role
+                2. Must match their experience level complexity
+                3. Should be scenario-based and practical
+                4. Should allow for follow-up questions based on their answer
+                5. Must be relevant to real-world {desired_positions} challenges
+                6. Must be UNIQUE and not similar to any previously asked questions
+                
+                Generate ONE specific question that combines their primary technology, target role requirements, experience level complexity, and a realistic work scenario.
+                
+                Return ONLY the question, no additional text.
+                """
+                
+                response = self.model.generate_content(first_question_prompt)
+                question = response.text.strip()
+                
+                # Check if question is duplicate
+                if not self.is_question_duplicate(question):
+                    # Add to tracking
+                    self.add_question_to_tracking(question)
+                    
+                    # Mark the primary technology as covered
+                    if profile.get('primary_technologies'):
+                        self.technical_areas_covered.add(profile['primary_technologies'][0].lower())
+                    
+                    return question
+                    
+            except Exception as e:
+                print(f"Error generating first question (attempt {attempt + 1}): {e}")
+        
+        # Enhanced fallback based on profile
+        primary_tech = tech_stack.split(',')[0].strip() if tech_stack else "programming"
+        experience_level = self.get_experience_level(experience_years)
+        
+        fallback_questions = {
+            "junior": f"Walk me through how you would build a simple {desired_positions} feature using {primary_tech}. What would be your step-by-step approach?",
+            "mid-level": f"You're tasked with optimizing a slow-performing {primary_tech} application in a {desired_positions} role. What's your debugging and optimization strategy?",
+            "senior": f"Design a scalable {primary_tech} solution for a {desired_positions} team handling 100k+ users. What architectural decisions would you make?",
+            "expert": f"You're leading a {desired_positions} team migrating from legacy {primary_tech} to modern stack. How do you plan and execute this transition?"
+        }
+    
+        fallback_question = fallback_questions.get(experience_level, fallback_questions["mid-level"])
+        self.add_question_to_tracking(fallback_question)
+        return fallback_question
+
+    def normalize_question(self, question: str) -> str:
+        """Normalize question for duplicate detection."""
+        normalized = question.lower()
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        normalized = re.sub(r'[.!?]+$', '', normalized)
+        normalized = re.sub(r'\[q-\d+\]', '', normalized)
+        normalized = re.sub(r'question \d+:', '', normalized)
+        stop_words = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']
+        words = normalized.split()
+        normalized = ' '.join([word for word in words if word not in stop_words])
+        return normalized
+
+    def get_conversation_state(self) -> Dict:
+        """Get current conversation state for UI display."""
+        return {
+            "current_state": self.current_state,
+            "candidate_info": self.candidate_info,
+            "questions_asked": len(self.responses),
+            "current_question_index": self.current_question_index,
+            "tech_questions": self.tech_questions,
+            "responses": self.responses,
+            "technical_areas_covered": list(self.technical_areas_covered),
+            "skill_depth_assessment": self.skill_depth_assessment,
+            "candidate_profile": self.candidate_profile,
+            "progress_percentage": self.get_progress_percentage(),
+            "interview_completed": self.current_state == self.COMPLETED
+        }
+    
+    def process_message(self, user_input: str) -> str:
+        """Process user message and return chatbot response."""
+        return self.process_input(user_input)
+
+    def get_progress_percentage(self) -> int:
+        """Calculate interview progress percentage."""
+        if self.current_state == self.GREETING:
+            return 5
+        elif self.current_state == self.COLLECTING_INFO:
+            info_fields_completed = len([k for k, v in self.candidate_info.items() if v])
+            return 10 + (info_fields_completed * 10)  # 10-70%
+        elif self.current_state == self.TECHNICAL_QUESTIONS:
+            questions_completed = len(self.responses)
+            return 70 + min(questions_completed * 4, 25)  # 70-95%
+        elif self.current_state == self.COMPLETED:
+            return 100
+        else:
+            return 0
+    
+    def is_question_duplicate(self, new_question: str) -> bool:
+        """Check if a question is duplicate or too similar to existing ones."""
+        if not new_question or not new_question.strip():
+            return True
+        normalized_new = self.normalize_question(new_question)
+        if normalized_new in self.asked_questions:
+            return True
+        for existing_question in self.asked_questions:
+            similarity = self.calculate_question_similarity(normalized_new, existing_question)
+            if similarity > 0.8:
+                return True
+        return False
+
+    def calculate_question_similarity(self, question1: str, question2: str) -> float:
+        """Calculate similarity between two questions using simple word overlap."""
+        words1 = set(question1.split())
+        words2 = set(question2.split())
+        if not words1 or not words2:
+            return 0.0
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        similarity = len(intersection) / len(union) if union else 0.0
+        return similarity
+
+    def add_question_to_tracking(self, question: str):
+        """Add question to tracking sets."""
+        if question and question.strip():
+            normalized = self.normalize_question(question)
+            self.asked_questions.add(normalized)
+            self.asked_questions_raw.append(question)
+
+    def get_question_uniqueness_constraint(self) -> str:
+        """Get constraint text for AI prompts to avoid duplicate questions."""
+        if not self.asked_questions_raw:
+            return "This is the first question."
+        constraint = "PREVIOUSLY ASKED QUESTIONS (DO NOT repeat or create similar questions):\n"
+        for i, question in enumerate(self.asked_questions_raw, 1):
+            constraint += f"{i}. {question}\n"
+        constraint += "\nThe new question MUST be completely different from all above questions."
+        return constraint
+
+    def analyze_response_depth_and_generate_followup(self, question: str, answer: str) -> Tuple[str, bool, Dict]:
+        """Analyze response depth and generate targeted follow-up questions."""
+        if answer.lower() == "skipped":
+            return "", False, {}
+        
+        profile = self.candidate_profile
+        tech_stack = self.candidate_info.get("tech_stack", "")
+        experience_years = self.candidate_info.get("experience_years", "0")
+        desired_positions = self.candidate_info.get("desired_positions", "")
+        
+        try:
+            analysis_prompt = f"""
+            Analyze this candidate's technical response in detail:
+            
+            CANDIDATE CONTEXT:
+            - Tech Stack: {tech_stack}
+            - Experience: {experience_years} years  
+            - Target Role: {desired_positions}
+            - Expected Complexity: {profile.get('complexity_level', 'mid')}
+            
+            QUESTION: {question}
+            ANSWER: {answer}
+            
+            PREVIOUS RESPONSES CONTEXT: {len(self.responses)} questions asked so far
+            AREAS ALREADY COVERED: {list(self.technical_areas_covered)}
+            
+            AVOID DUPLICATE QUESTIONS:
+            {self.get_question_uniqueness_constraint()}
+            
+            Provide detailed analysis in JSON format:
+            {{
+                "response_quality": "excellent/good/average/poor",
+                "technical_depth": "deep/moderate/shallow",
+                "knowledge_level_shown": "expert/advanced/intermediate/beginner",
+                "specific_strengths": ["list specific technical strengths shown"],
+                "knowledge_gaps": ["areas where knowledge seems limited"],
+                "follow_up_opportunities": ["specific areas to probe deeper"],
+                "buzzwords_vs_understanding": "genuine_understanding/surface_level/mixed",
+                "practical_experience_evident": true/false,
+                "needs_followup": true/false,
+                "followup_type": "clarification/deeper_dive/practical_application/edge_cases",
+                "suggested_followup": "specific follow-up question if needed - must be UNIQUE from all previous questions"
+            }}
+            """
+            
+            response = self.model.generate_content(analysis_prompt)
+            analysis = json.loads(response.text.strip())
+            
+            # Store skill assessment
+            question_tech = self.extract_technology_from_question(question)
+            if question_tech:
+                self.skill_depth_assessment[question_tech] = {
+                    "level": analysis.get("knowledge_level_shown", "intermediate"),
+                    "quality": analysis.get("response_quality", "average"),
+                    "depth": analysis.get("technical_depth", "moderate")
+                }
+            
+            followup_needed = analysis.get("needs_followup", False)
+            suggested_followup = analysis.get("suggested_followup", "")
+            
+            # Check if suggested follow-up is duplicate
+            if followup_needed and suggested_followup:
+                if not self.is_question_duplicate(suggested_followup):
+                    self.add_question_to_tracking(suggested_followup)
+                    return suggested_followup, True, analysis
+                else:
+                    # Generate alternative if suggested followup is duplicate
+                    return "", False, analysis
+            
+            return "", False, analysis
+            
+        except Exception as e:
+            print(f"Error analyzing response: {e}")
+            return "", False, {}
+
+    def generate_context_aware_next_question(self) -> str:
+        """Generate next question based on comprehensive context analysis."""
+        profile = self.candidate_profile
+        tech_stack = self.candidate_info.get("tech_stack", "")
+        experience_years = self.candidate_info.get("experience_years", "0")
+        desired_positions = self.candidate_info.get("desired_positions", "")
+        
+        # Analyze previous responses for patterns
+        response_analysis = self.analyze_response_patterns()
+        
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                next_question_prompt = f"""
+                Generate the next highly specific technical question based on comprehensive context:
+                
+                CANDIDATE PROFILE:
+                - Tech Stack: {tech_stack}
+                - Experience: {experience_years} years
+                - Target Role: {desired_positions}
+                - Position Category: {profile.get('position_category', 'fullstack')}
+                - Complexity Level: {profile.get('complexity_level', 'mid')}
+                
+                INTERVIEW PROGRESS:
+                - Questions Asked: {len(self.responses)}
+                - Technical Areas Covered: {list(self.technical_areas_covered)}
+                - Uncovered Technologies: {self.get_uncovered_technologies()}
+                - Skill Assessments So Far: {json.dumps(self.skill_depth_assessment, indent=2)}
+                
+                RESPONSE PATTERNS ANALYSIS:
+                {json.dumps(response_analysis, indent=2)}
+                
+                PREVIOUS Q&A CONTEXT (last 2):
+                {self.get_recent_qa_context()}
+                
+                CRITICAL - AVOID DUPLICATE QUESTIONS:
+                {self.get_question_uniqueness_constraint()}
+                
+                Generate ONE highly specific question that addresses an uncovered technical area, matches their demonstrated competency level, is directly relevant to {desired_positions} work, allows assessment of practical experience, and is COMPLETELY UNIQUE from all previous questions.
+                
+                Return ONLY the question, no additional text.
+                """
+                
+                response = self.model.generate_content(next_question_prompt)
+                question = response.text.strip()
+                
+                # Check if question is duplicate
+                if not self.is_question_duplicate(question):
+                    # Add to tracking
+                    self.add_question_to_tracking(question)
+                    
+                    # Update covered areas
+                    new_tech = self.extract_technology_from_question(question)
+                    if new_tech:
+                        self.technical_areas_covered.add(new_tech.lower())
+                    
+                    return question
+                    
+            except Exception as e:
+                print(f"Error generating next question (attempt {attempt + 1}): {e}")
+        
+        # Fallback with uniqueness check
+        return self.get_fallback_next_question()
+    
+    def analyze_response_patterns(self) -> Dict:
+        """Analyze patterns in candidate's responses to inform next questions."""
+        if not self.responses:
+            return {"pattern": "no_data"}
+        
+        patterns = {
+            "average_response_length": sum(len(r['answer']) for r in self.responses) / len(self.responses),
+            "theoretical_vs_practical": self.assess_theoretical_vs_practical(),
+            "confidence_indicators": self.count_confidence_indicators(),
+            "technology_mentions": self.count_technology_mentions(),
+            "experience_indicators": self.count_experience_indicators()
+        }
+        
+        return patterns
+    
+    def assess_theoretical_vs_practical(self) -> str:
+        """Assess if candidate gives theoretical or practical answers."""
+        practical_indicators = ["project", "implemented", "built", "deployed", "used", "worked with", "experience"]
+        theoretical_indicators = ["should", "would", "could", "theory", "concept", "generally", "typically"]
+        
+        practical_count = 0
+        theoretical_count = 0
+        
+        for response in self.responses:
+            answer_lower = response['answer'].lower()
+            practical_count += sum(1 for indicator in practical_indicators if indicator in answer_lower)
+            theoretical_count += sum(1 for indicator in theoretical_indicators if indicator in answer_lower)
+        
+        if practical_count > theoretical_count * 1.5:
+            return "practical_focused"
+        elif theoretical_count > practical_count * 1.5:
+            return "theoretical_focused"
+        else:
+            return "balanced"
+    
+    def count_confidence_indicators(self) -> Dict:
+        """Count indicators of confidence in responses."""
+        confident_phrases = ["I have", "I've done", "I built", "I implemented", "I led", "I designed"]
+        uncertain_phrases = ["I think", "maybe", "probably", "I'm not sure", "I believe", "I guess"]
+        
+        confident_count = 0
+        uncertain_count = 0
+        
+        for response in self.responses:
+            answer_lower = response['answer'].lower()
+            confident_count += sum(1 for phrase in confident_phrases if phrase in answer_lower)
+            uncertain_count += sum(1 for phrase in uncertain_phrases if phrase in answer_lower)
+        
+        return {
+            "confident_indicators": confident_count,
+            "uncertain_indicators": uncertain_count,
+            "confidence_ratio": confident_count / max(uncertain_count, 1)
+        }
+    
+    def count_technology_mentions(self) -> Dict:
+        """Count specific technology mentions in responses."""
+        tech_mentions = {}
+        tech_list = [t.strip().lower() for t in self.candidate_info.get("tech_stack", "").split(',')]
+        
+        for response in self.responses:
+            answer_lower = response['answer'].lower()
+            for tech in tech_list:
+                if tech in answer_lower:
+                    tech_mentions[tech] = tech_mentions.get(tech, 0) + 1
+        
+        return tech_mentions
+    
+    def count_experience_indicators(self) -> Dict:
+        """Count indicators of real-world experience."""
+        experience_indicators = {
+            "project_work": ["project", "application", "system", "platform"],
+            "team_work": ["team", "collaborated", "worked with", "led", "managed"],
+            "problem_solving": ["problem", "issue", "bug", "fixed", "solved", "optimized"],
+            "production": ["production", "deployed", "live", "users", "scale"]
+        }
+        
+        indicator_counts = {category: 0 for category in experience_indicators}
+        
+        for response in self.responses:
+            answer_lower = response['answer'].lower()
+            for category, indicators in experience_indicators.items():
+                indicator_counts[category] += sum(1 for indicator in indicators if indicator in answer_lower)
+        
+        return indicator_counts
+    
+    def get_uncovered_technologies(self) -> List[str]:
+        """Get technologies from their stack that haven't been covered yet."""
+        tech_list = [t.strip().lower() for t in self.candidate_info.get("tech_stack", "").split(',')]
+        return [tech for tech in tech_list if tech not in self.technical_areas_covered]
+    
+    def extract_technology_from_question(self, question: str) -> Optional[str]:
+        """Extract the primary technology being asked about from the question."""
+        tech_list = [t.strip().lower() for t in self.candidate_info.get("tech_stack", "").split(',')]
+        question_lower = question.lower()
+        
+        for tech in tech_list:
+            if tech in question_lower:
+                return tech
+        return None
+    
+    def get_recent_qa_context(self) -> str:
+        """Get context from recent Q&A pairs."""
+        if len(self.responses) < 2:
+            return "Limited context available"
+        
+        recent_responses = self.responses[-2:]
+        context = ""
+        for i, response in enumerate(recent_responses, 1):
+            context += f"Q{i}: {response['question']}\nA{i}: {response['answer'][:200]}...\n\n"
+        
+        return context
+    
+    def get_position_specific_focus_areas(self, position: str) -> str:
+        """Get focus areas specific to the target position."""
+        position_lower = position.lower()
+        
+        focus_areas = {
+            "frontend": "Component architecture, state management, performance optimization, responsive design, accessibility, browser compatibility, build tools, testing frameworks",
+            "backend": "API design, database optimization, security, scalability, microservices, caching strategies, error handling, monitoring",
+            "fullstack": "System architecture, API integration, database design, deployment strategies, performance optimization, security across stack",
+            "devops": "CI/CD pipelines, containerization, orchestration, monitoring, infrastructure as code, automation, security, cloud services",
+            "mobile": "Platform-specific optimization, offline capabilities, native features, app store guidelines, performance, user experience, device compatibility",
+            "data": "Data pipeline design, ETL processes, data modeling, analytics, visualization, machine learning, big data technologies, data governance",
+            "qa": "Test automation, test strategy, bug tracking, performance testing, security testing, continuous testing, test data management"
+        }
+        
+        for key, areas in focus_areas.items():
+            if key in position_lower:
+                return areas
+        
+        return "General software development practices, problem-solving, code quality, collaboration, continuous learning"
+    
+    def get_fallback_next_question(self) -> str:
+        """Generate fallback question when AI generation fails."""
+        uncovered_techs = self.get_uncovered_technologies()
+        desired_positions = self.candidate_info.get("desired_positions", "developer")
+        
+        # Try different fallback approaches
+        fallback_templates = [
+            f"Tell me about a challenging problem you solved using {uncovered_techs[0] if uncovered_techs else 'your preferred technology'} in the context of {desired_positions} work. What was your approach?",
+            f"Describe the most complex {desired_positions} project you've worked on. What technical challenges did you face and how did you overcome them?",
+            f"How do you approach code reviews and quality assurance in {desired_positions} projects?",
+            f"What's your experience with testing strategies in {desired_positions} development?",
+            f"How do you handle performance optimization in your {desired_positions} work?"
+        ]
+        
+        # Find a unique fallback question
+        for template in fallback_templates:
+            if not self.is_question_duplicate(template):
+                self.add_question_to_tracking(template)
+                return template
+        
+        # Last resort - generate a timestamp-based unique question
+        import time
+        unique_question = f"Based on your {desired_positions} experience, describe a recent technical decision you made and why you chose that approach. [Q-{int(time.time())}]"
+        self.add_question_to_tracking(unique_question)
+        return unique_question
+
     def get_greeting_message(self) -> str:
         """Return the initial greeting message."""
         return """🤖 **Welcome to TechHire AI Interview Assistant!** 
 
-I'm here to help streamline your technical interview process. I'll:
-- Collect your basic information
-- Understand your technical expertise
-- Ask relevant technical questions based on your skills
-- Provide a structured interview experience
+I'm here to help streamline your technical interview process with personalized questions. I'll:
+- Collect your detailed profile information
+- Analyze your technical expertise and target role
+- Generate highly specific questions based on your experience and goals
+- Adapt questions based on your responses for maximum relevance
 
 Let's get started! 
 
@@ -60,259 +654,253 @@ Let's get started!
 
 May I have your full name?"""
     
-    def is_exit_command(self, user_input: str) -> bool:
-        """Check if user wants to exit."""
-        return user_input.lower().strip() in self.exit_keywords
-    
-    def get_exit_message(self) -> str:
-        """Return exit message."""
-        return """
-Thank you for using TechHire AI Interview Assistant! 👋
+    def start_technical_questions(self) -> str:
+        """Start the technical questions phase with enhanced personalization."""
+        # Analyze candidate profile comprehensively
+        self.analyze_candidate_profile()
+        
+        # Generate highly personalized first question
+        first_question = self.generate_personalized_first_question()
+        self.tech_questions = [first_question]
+        self.current_question_index = 0
+        self.current_state = self.TECHNICAL_QUESTIONS
+        
+        tech_stack = self.candidate_info.get("tech_stack", "")
+        experience_years = self.candidate_info.get("experience_years", "0")
+        desired_positions = self.candidate_info.get("desired_positions", "")
+        
+        return f"""
+Perfect! I have all your information and have analyzed your profile.
 
-Your responses have been saved. Our team will review your information and get back to you within 2-3 business days.
+**Personalized Interview Strategy:**
+- **Target Role:** {desired_positions}
+- **Tech Stack:** {tech_stack}
+- **Experience Level:** {self.get_experience_level(experience_years).title()}
+- **Question Approach:** {self.candidate_profile.get('interview_approach', 'scenario-based').title()}
 
-Have a great day!
+I've tailored questions specifically for your background and career goals. Each question will build on your previous responses.
+
+**Question 1:**
+{first_question}
+
+Please provide a detailed answer. You can type 'skip' if you'd like to move to the next question.
         """
     
-    def validate_email(self, email: str) -> bool:
-        """Validate email format."""
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return re.match(pattern, email) is not None
-    
-    def validate_phone(self, phone: str) -> bool:
-        """Validate phone number format."""
-        # Remove spaces, dashes, and parentheses
-        cleaned = re.sub(r'[\s\-\(\)]', '', phone)
-        # Check if it contains only digits and is of reasonable length
-        return cleaned.isdigit() and 10 <= len(cleaned) <= 15
-    
-    def validate_experience(self, experience: str) -> bool:
-        """Validate years of experience."""
-        try:
-            years = float(experience)
-            return 0 <= years <= 50
-        except ValueError:
-            return False
-    
-    def get_field_prompt(self, field: str) -> str:
-        """Get prompt for each information field."""
-        prompts = {
-            "full_name": "What's your full name?",
-            "email": "What's your email address?",
-            "phone": "What's your phone number?",
-            "experience_years": "How many years of professional experience do you have? (Enter a number)",
-            "desired_positions": "What position(s) are you interested in? (You can list multiple)",
-            "location": "What's your current location (city, state/country)?",
-            "tech_stack": "What technologies do you work with? Please list your tech stack (programming languages, frameworks, databases, tools, etc.)"
-        }
-        return prompts.get(field, "Please provide the requested information.")
-    
-    def validate_field_input(self, field: str, value: str) -> tuple[bool, str]:
-        """Validate input for specific fields."""
-        if field == "email":
-            if not self.validate_email(value):
-                return False, "Please enter a valid email address (e.g., john@example.com)"
-        elif field == "phone":
-            if not self.validate_phone(value):
-                return False, "Please enter a valid phone number (10-15 digits)"
-        elif field == "experience_years":
-            if not self.validate_experience(value):
-                return False, "Please enter a valid number of years (0-50)"
-        elif field == "full_name":
-            if len(value.strip()) < 2:
-                return False, "Please enter your full name (at least 2 characters)"
-        elif field in ["desired_positions", "location", "tech_stack"]:
-            if len(value.strip()) < 2:
-                return False, "Please provide more detailed information"
+    def handle_technical_questions(self, user_input: str) -> str:
+        """Handle technical questions phase with enhanced context awareness and sentiment analysis."""
+        current_question = self.tech_questions[self.current_question_index]
         
-        return True, ""
+        # Analyze sentiment of current response
+        current_sentiment = self.analyze_response_sentiment(user_input)
+        
+        # Store the response with sentiment
+        response_entry = {
+            "question": current_question,
+            "answer": user_input if user_input.lower() != 'skip' else "Skipped",
+            "question_number": len(self.responses) + 1,
+            "timestamp": datetime.now().isoformat(),
+            "sentiment_analysis": current_sentiment
+        }
+        self.responses.append(response_entry)
+        self.individual_sentiments.append(current_sentiment)
+        
+        # Format sentiment analysis for display
+        response_sentiment = ""
+        if user_input.lower() != 'skip' and current_sentiment:
+            response_sentiment = f"""
+📊 **Response Analysis:**
+- **Communication Tone:** {current_sentiment.get('overall_sentiment', 'Neutral')}
+- **Confidence Level:** {current_sentiment.get('confidence_indicators', 'Moderate')}
+- **Technical Depth:** {current_sentiment.get('technical_depth', 'Good')}
+- **Engagement:** {current_sentiment.get('engagement_level', 'Good')}
+            """
+        
+        # Enhanced response analysis and follow-up generation
+        if user_input.lower() != 'skip' and len(self.responses) <= 6:
+            followup_question, needs_followup, analysis = self.analyze_response_depth_and_generate_followup(
+                current_question, user_input
+            )
+            
+            if needs_followup and followup_question:
+                self.tech_questions.append(followup_question)
+                self.current_question_index += 1
+                
+                return f"""
+Thank you for your detailed response! 
+
+**Technical Assessment:** {analysis.get('response_quality', 'Good').title()} quality response showing {analysis.get('technical_depth', 'moderate')} technical depth.
+
+{response_sentiment}
+
+**Follow-up Question:**
+{followup_question}
+                """
+        
+        # Check if we should continue with more questions
+        if len(self.responses) < 7:  # Continue for up to 7 questions
+            next_question = self.generate_context_aware_next_question()
+            self.tech_questions.append(next_question)
+            self.current_question_index += 1
+            
+            return f"""
+Thank you for your response!
+
+{response_sentiment}
+
+**Question {len(self.responses) + 1}:**
+{next_question}
+            """
+        else:
+            # End the interview
+            self.current_state = self.COMPLETED
+            return self.generate_final_report()
     
-    def get_experience_level(self, years_str: str) -> str:
-        """Determine experience level based on years."""
+    def generate_final_report(self) -> str:
+        """Generate comprehensive final interview report."""
+        # Perform overall sentiment analysis
+        self.sentiment_analysis = self.analyze_overall_sentiment()
+        
+        # Generate detailed assessment
+        assessment = self.generate_comprehensive_assessment()
+        
+        return f"""
+🎯 **Technical Interview Completed!**
+
+Thank you for participating in this comprehensive technical interview. Here's your detailed assessment:
+
+{assessment}
+
+**Next Steps:**
+- Review the feedback provided
+- Focus on identified improvement areas
+- Keep building practical experience
+- Continue learning and growing in your tech stack
+
+Good luck with your job search! 🚀
+        """
+    
+    def analyze_overall_sentiment(self) -> Dict:
+        """Analyze overall sentiment across all responses."""
+        if not self.individual_sentiments:
+            return {"overall": "No responses to analyze"}
+        
         try:
-            years = float(years_str)
-            if years < 2:
+            overall_prompt = f"""
+            Analyze the overall interview performance based on individual response sentiments:
+            
+            Individual Response Sentiments: {json.dumps(self.individual_sentiments, indent=2)}
+            
+            Provide overall assessment in JSON format:
+            {{
+                "overall_confidence": "high/medium/low",
+                "technical_competency": "excellent/good/average/needs_improvement",
+                "communication_clarity": "excellent/good/average/poor",
+                "interview_performance": "strong/satisfactory/weak",
+                "key_strengths": ["list main strengths"],
+                "areas_for_improvement": ["list improvement areas"],
+                "hiring_recommendation": "strong_yes/yes/maybe/no",
+                "summary": "brief overall summary"
+            }}
+            """
+            
+            response = self.model.generate_content(overall_prompt)
+            return json.loads(response.text.strip())
+            
+        except Exception as e:
+            print(f"Error in overall sentiment analysis: {e}")
+            return {"overall": "Analysis error", "summary": "Unable to complete analysis"}
+    
+    def generate_comprehensive_assessment(self) -> str:
+        """Generate detailed assessment report."""
+        candidate_name = self.candidate_info.get("full_name", "Candidate")
+        tech_stack = self.candidate_info.get("tech_stack", "")
+        experience_years = self.candidate_info.get("experience_years", "0")
+        desired_positions = self.candidate_info.get("desired_positions", "")
+        
+        report = f"""
+📋 **TECHNICAL INTERVIEW ASSESSMENT REPORT**
+
+**Candidate:** {candidate_name}
+**Target Role:** {desired_positions}
+**Experience:** {experience_years} years
+**Tech Stack:** {tech_stack}
+**Interview Date:** {datetime.now().strftime('%Y-%m-%d')}
+
+**📊 OVERALL PERFORMANCE:**
+"""
+        
+        if self.sentiment_analysis:
+            report += f"""
+- **Technical Competency:** {self.sentiment_analysis.get('technical_competency', 'Good').title()}
+- **Communication:** {self.sentiment_analysis.get('communication_clarity', 'Good').title()}
+- **Confidence Level:** {self.sentiment_analysis.get('overall_confidence', 'Medium').title()}
+- **Interview Performance:** {self.sentiment_analysis.get('interview_performance', 'Satisfactory').title()}
+
+**💪 KEY STRENGTHS:**
+"""
+            for strength in self.sentiment_analysis.get('key_strengths', []):
+                report += f"- {strength}\n"
+            
+            report += f"""
+**🎯 AREAS FOR IMPROVEMENT:**
+"""
+            for improvement in self.sentiment_analysis.get('areas_for_improvement', []):
+                report += f"- {improvement}\n"
+            
+            report += f"""
+**🏆 HIRING RECOMMENDATION:** {self.sentiment_analysis.get('hiring_recommendation', 'Maybe').replace('_', ' ').title()}
+
+**📝 SUMMARY:**
+{self.sentiment_analysis.get('summary', 'Candidate showed reasonable technical knowledge and communication skills.')}
+"""
+        
+        # Add technical areas assessment
+        if self.skill_depth_assessment:
+            report += f"""
+
+**🔧 TECHNICAL SKILLS ASSESSMENT:**
+"""
+            for tech, assessment in self.skill_depth_assessment.items():
+                report += f"- **{tech.title()}:** {assessment['level'].title()} level ({assessment['quality']} quality responses)\n"
+        
+        report += f"""
+
+**📈 DETAILED QUESTION ANALYSIS:**
+"""
+        for i, response in enumerate(self.responses, 1):
+            sentiment = response.get('sentiment_analysis', {})
+            report += f"""
+**Q{i}:** {response['question'][:100]}...
+**Response Quality:** {sentiment.get('technical_depth', 'Good')}
+**Confidence:** {sentiment.get('confidence_indicators', 'Moderate')}
+---
+"""
+        
+        return report
+    
+    def get_experience_level(self, years: str) -> str:
+        """Convert years of experience to level category."""
+        try:
+            years_int = int(years)
+            if years_int <= 2:
                 return "junior"
-            elif years < 5:
+            elif years_int <= 5:
                 return "mid-level"
-            elif years < 10:
+            elif years_int <= 10:
                 return "senior"
             else:
                 return "expert"
         except:
             return "mid-level"
     
-    def generate_initial_question(self, tech_stack: str, experience_years: str) -> str:
-        """Generate the first technical question based on tech stack and experience."""
-        experience_level = self.get_experience_level(experience_years)
-        
-        try:
-            prompt = f"""
-            You are conducting a technical interview for a {experience_level} developer.
-            
-            Candidate's Tech Stack: {tech_stack}
-            Years of Experience: {experience_years}
-            
-            Generate ONE specific technical question that:
-            1. Tests their knowledge of their PRIMARY technology from the tech stack
-            2. Is appropriate for a {experience_level} developer
-            3. Allows for follow-up questions based on their answer
-            4. Is practical and scenario-based
-            
-            Experience level guidelines:
-            - Junior (0-2 years): Basic concepts, syntax, simple problem-solving
-            - Mid-level (2-5 years): Design patterns, best practices, debugging
-            - Senior (5-10 years): Architecture, scalability, complex problem-solving
-            - Expert (10+ years): System design, optimization, leadership scenarios
-            
-            Return ONLY the question, no numbering or additional text.
-            """
-            
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-            
-        except Exception as e:
-            # Fallback based on experience level
-            primary_tech = tech_stack.split(',')[0].strip()
-            fallback_questions = {
-                "junior": f"Can you explain the basic concepts of {primary_tech} and walk me through a simple project you've built with it?",
-                "mid-level": f"How would you optimize performance in a {primary_tech} application? Share an example from your experience.",
-                "senior": f"Design a scalable system using {primary_tech}. What architectural decisions would you make and why?",
-                "expert": f"You're leading a team migrating a legacy system to {primary_tech}. What's your strategy and how do you handle challenges?"
-            }
-            return fallback_questions.get(experience_level, fallback_questions["mid-level"])
-    
-    def analyze_answer_and_generate_followup(self, question: str, answer: str, tech_stack: str, experience_level: str) -> tuple[str, bool]:
-        """Analyze the candidate's answer and generate a follow-up question if needed."""
-        if answer.lower() == "skipped":
-            return "", False
-            
-        try:
-            prompt = f"""
-            You are a technical interviewer analyzing a candidate's response.
-            
-            Original Question: {question}
-            Candidate's Answer: {answer}
-            Tech Stack: {tech_stack}
-            Experience Level: {experience_level}
-            
-            Analyze the answer and determine:
-            1. Does the answer show good understanding? (yes/no)
-            2. Are there areas that need deeper exploration?
-            3. Should you ask a follow-up question?
-            
-            If a follow-up is needed, generate ONE specific follow-up question that:
-            - Digs deeper into their answer
-            - Tests practical application
-            - Explores edge cases or advanced concepts
-            - Is relevant to their experience level
-            
-            Respond in this format:
-            FOLLOWUP_NEEDED: yes/no
-            QUESTION: [your follow-up question or "none"]
-            """
-            
-            response = self.model.generate_content(prompt)
-            response_text = response.text.strip()
-            
-            # Parse response
-            lines = response_text.split('\n')
-            followup_needed = False
-            followup_question = ""
-            
-            for line in lines:
-                if line.startswith('FOLLOWUP_NEEDED:'):
-                    followup_needed = 'yes' in line.lower()
-                elif line.startswith('QUESTION:'):
-                    followup_question = line.replace('QUESTION:', '').strip()
-                    if followup_question.lower() == 'none':
-                        followup_question = ""
-            
-            return followup_question, followup_needed
-            
-        except Exception as e:
-            return "", False
-    
-    def generate_next_question(self, previous_questions: List[dict], tech_stack: str, experience_level: str) -> str:
-        """Generate the next question based on previous Q&A context."""
-        try:
-            # Prepare context of previous questions and answers
-            qa_context = ""
-            for i, qa in enumerate(previous_questions[-3:], 1):  # Last 3 Q&As for context
-                qa_context += f"Q{i}: {qa['question']}\nA{i}: {qa['answer']}\n\n"
-            
-            remaining_topics = self.get_remaining_topics(previous_questions, tech_stack)
-            
-            prompt = f"""
-            You are conducting a technical interview. Here's the context:
-            
-            Tech Stack: {tech_stack}
-            Experience Level: {experience_level}
-            Questions Asked So Far: {len(previous_questions)}
-            
-            Previous Q&A Context:
-            {qa_context}
-            
-            Remaining Topics to Cover: {remaining_topics}
-            
-            Generate the NEXT technical question that:
-            1. Covers a different aspect/technology from their tech stack
-            2. Builds upon their previous answers when relevant
-            3. Is appropriate for their experience level
-            4. Explores areas not yet covered in depth
-            5. Is practical and scenario-based
-            
-            Avoid repeating similar concepts from previous questions.
-            Return ONLY the question, no additional text.
-            """
-            
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-            
-        except Exception as e:
-            # Fallback question
-            tech_list = [t.strip() for t in tech_stack.split(',')]
-            if len(previous_questions) < len(tech_list):
-                unused_tech = tech_list[len(previous_questions)]
-                return f"Tell me about your experience with {unused_tech} and how you've used it in real projects."
-            else:
-                return "How do you stay updated with new technologies and what's your approach to continuous learning?"
-    
-    def get_remaining_topics(self, previous_questions: List[dict], tech_stack: str) -> str:
-        """Identify remaining topics to cover based on tech stack."""
-        tech_list = [t.strip().lower() for t in tech_stack.split(',')]
-        covered_topics = []
-        
-        for qa in previous_questions:
-            question_lower = qa['question'].lower()
-            for tech in tech_list:
-                if tech in question_lower:
-                    covered_topics.append(tech)
-        
-        remaining = [tech for tech in tech_list if tech not in covered_topics]
-        return ', '.join(remaining) if remaining else "Advanced concepts and best practices"
-    
-    def get_fallback_response(self) -> str:
-        """Get fallback response for unexpected inputs."""
-        if self.current_state == self.COLLECTING_INFO:
-            current_field = self.info_fields[self.current_field_index]
-            return f"I didn't quite understand that. {self.get_field_prompt(current_field)}"
-        elif self.current_state == self.TECHNICAL_QUESTIONS:
-            return "Please provide your answer to the technical question, or type 'skip' if you'd like to move to the next question."
-        else:
-            return "I'm not sure how to help with that. Could you please clarify or try again?"
-    
-    def process_message(self, user_input: str) -> str:
-        """Process user message and return appropriate response."""
+    def process_input(self, user_input: str) -> str:
+        """Main method to process user input based on current state."""
         user_input = user_input.strip()
         
-        # Check for exit command
-        if self.is_exit_command(user_input):
-            self.save_candidate_data()
-            self.current_state = self.COMPLETED
-            return self.get_exit_message()
+        # Check for exit commands
+        if user_input.lower() in self.exit_keywords:
+            return "Thank you for using TechHire AI Interview Assistant! Goodbye! 👋"
         
-        # Handle different conversation states
         if self.current_state == self.GREETING:
             return self.handle_greeting(user_input)
         elif self.current_state == self.COLLECTING_INFO:
@@ -320,198 +908,35 @@ Have a great day!
         elif self.current_state == self.TECHNICAL_QUESTIONS:
             return self.handle_technical_questions(user_input)
         elif self.current_state == self.COMPLETED:
-            return "The interview has been completed. Thank you!"
+            return "Interview completed! Thank you for your participation. Type 'exit' to end."
         
-        return self.get_fallback_response()
+        return "I'm not sure how to help with that. Please try again."
     
     def handle_greeting(self, user_input: str) -> str:
-        """Handle the greeting state."""
-        if user_input:
-            self.candidate_info["full_name"] = user_input
-            self.current_field_index = 1  # Move to next field (email)
-            self.current_state = self.COLLECTING_INFO
-            return f"Nice to meet you, {user_input}! {self.get_field_prompt('email')}"
-        return "Please tell me your full name to get started."
+        """Handle the greeting phase."""
+        self.candidate_info["full_name"] = user_input
+        self.current_state = self.COLLECTING_INFO
+        return f"Nice to meet you, {user_input}! What's your email address?"
     
     def handle_info_collection(self, user_input: str) -> str:
-        """Handle information collection state."""
-        if self.current_field_index >= len(self.info_fields):
-            # All info collected, move to technical questions
-            self.current_state = self.TECH_STACK
-            return self.start_technical_questions()
+        """Handle information collection phase."""
+        field_prompts = {
+            "email": "What's your phone number?",
+            "phone": "How many years of professional experience do you have?",
+            "experience_years": "What positions are you targeting? (e.g., Frontend Developer, Backend Engineer, etc.)",
+            "desired_positions": "What's your preferred location or work arrangement?",
+            "location": "Please list your technical skills and technologies (comma-separated):"
+        }
         
-        current_field = self.info_fields[self.current_field_index]
-        
-        # Validate input
-        is_valid, error_message = self.validate_field_input(current_field, user_input)
-        if not is_valid:
-            return error_message
-        
-        # Store the information
+        current_field = list(field_prompts.keys())[self.current_field_index - 1] if self.current_field_index > 0 else "email"
         self.candidate_info[current_field] = user_input
+        
         self.current_field_index += 1
         
-        # Check if we've collected all info
-        if self.current_field_index >= len(self.info_fields):
+        if self.current_field_index < len(field_prompts):
+            next_field = list(field_prompts.keys())[self.current_field_index - 1]
+            return field_prompts[next_field]
+        else:
+            # Store tech stack and start technical questions
+            self.candidate_info["tech_stack"] = user_input
             return self.start_technical_questions()
-        
-        # Ask for next field
-        next_field = self.info_fields[self.current_field_index]
-        return f"Great! {self.get_field_prompt(next_field)}"
-    
-    def start_technical_questions(self) -> str:
-        """Start the technical questions phase with dynamic question generation."""
-        tech_stack = self.candidate_info.get("tech_stack", "")
-        experience_years = self.candidate_info.get("experience_years", "0")
-        
-        # Generate first question based on tech stack and experience
-        first_question = self.generate_initial_question(tech_stack, experience_years)
-        self.tech_questions = [first_question]  # Start with first question only
-        self.current_question_index = 0
-        self.current_state = self.TECHNICAL_QUESTIONS
-        
-        experience_level = self.get_experience_level(experience_years)
-        
-        return f"""
-Perfect! I have all your information. Now let's move to the technical questions.
-
-Based on your tech stack ({tech_stack}) and {experience_years} years of experience, I've tailored questions for a {experience_level} developer.
-
-**Question 1:**
-{first_question}
-
-Please provide your answer. You can type 'skip' if you'd like to move to the next question.
-        """
-    
-    def handle_technical_questions(self, user_input: str) -> str:
-        """Handle technical questions phase with dynamic follow-ups."""
-        current_question = self.tech_questions[self.current_question_index]
-        
-        # Store the response
-        response_entry = {
-            "question": current_question,
-            "answer": user_input if user_input.lower() != 'skip' else "Skipped",
-            "question_number": len(self.responses) + 1,
-            "timestamp": datetime.now().isoformat()
-        }
-        self.responses.append(response_entry)
-        
-        tech_stack = self.candidate_info.get("tech_stack", "")
-        experience_years = self.candidate_info.get("experience_years", "0")
-        experience_level = self.get_experience_level(experience_years)
-        
-        # Check if we should ask a follow-up question
-        if user_input.lower() != 'skip' and len(self.responses) <= 6:  # Max 6 questions total
-            followup_question, needs_followup = self.analyze_answer_and_generate_followup(
-                current_question, user_input, tech_stack, experience_level
-            )
-            
-            if needs_followup and followup_question:
-                # Add follow-up question
-                self.tech_questions.append(followup_question)
-                self.current_question_index += 1
-                
-                return f"""
-Thank you for your response! 
-
-**Follow-up Question {len(self.responses) + 1}:**
-{followup_question}
-
-Please elaborate on your answer.
-                """
-        
-        # Generate next main question or complete interview
-        if len(self.responses) >= 6:  # Maximum questions reached
-            self.current_state = self.COMPLETED
-            self.save_candidate_data()
-            return self.get_completion_message()
-        
-        # Generate next question based on context
-        next_question = self.generate_next_question(self.responses, tech_stack, experience_level)
-        self.tech_questions.append(next_question)
-        self.current_question_index += 1
-        
-        return f"""
-Thank you for your response!
-
-**Question {len(self.responses) + 1}:**
-{next_question}
-
-Please provide your answer, or type 'skip' to move to the next question.
-        """
-    
-    def get_completion_message(self) -> str:
-        """Get completion message with dynamic content and sentiment analysis."""
-        total_questions = len(self.responses)
-        skipped_count = sum(1 for r in self.responses if r['answer'] == 'Skipped')
-        answered_count = total_questions - skipped_count
-
-        # Perform sentiment analysis
-        self.sentiment_analysis = self.sentiment_analyzer.analyze_all_responses(self.responses)
-        
-        # Format sentiment report
-        sentiment_report = self.sentiment_analyzer.format_sentiment_report(
-            self.sentiment_analysis, 
-            self.candidate_info.get('full_name', '')
-        )
-        
-        base_message = f"""
-🎉 **Technical Interview Completed!**
-
-Thank you, {self.candidate_info.get('full_name', 'candidate')}, for completing the technical interview!
-
-**Interview Summary:**
-- ✅ Profile information collected
-- ✅ {total_questions} technical questions presented
-- ✅ {answered_count} questions answered
-- ✅ {skipped_count} questions skipped
-- ✅ Responses saved successfully
-
-**Your Experience Level:** {self.get_experience_level(self.candidate_info.get('experience_years', '0')).title()}
-**Tech Stack Covered:** {self.candidate_info.get('tech_stack', 'N/A')}
-
-{sentiment_report}
-
-**Next Steps:**
-1. Our technical team will review your personalized responses
-2. We'll contact you at {self.candidate_info.get('email', 'your email')} within 2-3 business days
-3. Questions were tailored to your experience level and previous answers
-4. If your profile matches our requirements, we'll schedule a detailed technical interview
-
-Thank you for your time and interest in our company! 🚀
-
-*The interview has been customized based on your responses and technical background.*
-        """
-        
-        return base_message
-    
-    def save_candidate_data(self) -> None:
-        """Save candidate data to JSON file including sentiment analysis."""
-        try:
-            # Create directory if it doesn't exist
-            os.makedirs("candidate_responses", exist_ok=True)
-            
-            # Prepare data to save
-            data = {
-                "timestamp": datetime.now().isoformat(),
-                "candidate_info": self.candidate_info,
-                "technical_responses": self.responses,
-                "sentiment_analysis": self.sentiment_analysis,
-                "interview_status": "completed" if self.current_state == self.COMPLETED else "incomplete"
-            }
-            
-            # Generate filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            candidate_name = self.candidate_info.get('full_name', 'unknown').replace(' ', '_')
-            filename = f"candidate_responses/{candidate_name}_{timestamp}.json"
-            
-            # Save to file
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-                
-        except Exception as e:
-            print(f"Error saving candidate data: {e}")
-    
-    def get_conversation_state(self) -> str:
-        """Get current conversation state for debugging."""
-        return self.current_state
